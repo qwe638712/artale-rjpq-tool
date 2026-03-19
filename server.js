@@ -14,6 +14,7 @@ io.on('connection', (socket) => {
     let currentRoom = null;
     let myColor = null;
 
+    // 處理進入房間
     socket.on('joinRoom', (roomId) => {
         if (currentRoom) socket.leave(currentRoom);
         currentRoom = roomId;
@@ -22,7 +23,7 @@ io.on('connection', (socket) => {
         if (!roomsState[roomId]) roomsState[roomId] = {};
         if (roomColorCounters[roomId] === undefined) roomColorCounters[roomId] = 0;
 
-        // 分配顏色
+        // 分配顏色 (根據進入順序 0-3 循環)
         myColor = PLAYER_COLORS[roomColorCounters[roomId] % PLAYER_COLORS.length];
         roomColorCounters[roomId]++;
 
@@ -30,29 +31,38 @@ io.on('connection', (socket) => {
         socket.emit('sync', roomsState[roomId]);
     });
 
+    // 處理點擊標記
     socket.on('click', (data) => {
         if (!currentRoom || !data.color) return;
         const { floor, tile, color } = data;
         const targetKey = `f${floor}-${tile}`;
 
-        // 檢查這一層是否已經有「我的顏色」，有的話先移除（實現單人單行單色）
-        let alreadyExists = false;
+        // 【邏輯 1：不能覆蓋別人】
+        // 如果點擊的位置已經有顏色，且不是我的顏色，則不予理會
+        if (roomsState[currentRoom][targetKey] && roomsState[currentRoom][targetKey] !== color) {
+            return;
+        }
+
+        // 【邏輯 2：單人單行限一格】
+        // 先找出這一層 (floor) 是否已經有「我的顏色」在別的位置，有的話先刪除
+        let isCancelAction = false;
         for (let key in roomsState[currentRoom]) {
             if (key.startsWith(`f${floor}-`) && roomsState[currentRoom][key] === color) {
-                // 如果點擊的是同一個格子，記錄起來準備刪除後不補
-                if (key === targetKey) alreadyExists = true; 
+                if (key === targetKey) isCancelAction = true; // 如果點的是自己原本那格，代表想取消
                 delete roomsState[currentRoom][key];
             }
         }
 
-        // 如果點擊的是新格子，則加上標記；如果是舊格子，上面已刪除達成取消效果
-        if (!alreadyExists) {
+        // 如果不是取消動作，則在目標位置畫上我的顏色
+        if (!isCancelAction) {
             roomsState[currentRoom][targetKey] = color;
         }
 
+        // 廣播給同房間的人
         io.to(currentRoom).emit('sync', roomsState[currentRoom]);
     });
 
+    // 重置房間
     socket.on('reset', () => {
         if (!currentRoom) return;
         roomsState[currentRoom] = {};
@@ -71,5 +81,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server started on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
