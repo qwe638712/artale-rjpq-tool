@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artale 羅密歐與茱麗葉同步工具</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --bg: #f0f2f5; --primary: #3498db; --text: #2c3e50; }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 15px; color: var(--text); }
+        
+        .main-title { margin-top: 10px; margin-bottom: 5px; font-size: 1.5rem; color: #2c3e50; }
+        .author-tag { font-size: 0.9rem; color: #7f8c8d; margin-bottom: 20px; }
+
+        /* 房間選單 */
+        #room-selector { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; width: 90%; max-width: 350px; }
+        .room-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 15px; }
+        .room-btn { padding: 12px 0; background: white; border: 2px solid #ddd; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .room-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0f9ff; }
+
+        /* 遊戲畫面 */
+        #game-screen { display: none; width: 100%; max-width: 450px; flex-direction: column; align-items: center; }
+        .header { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); text-align: center; margin-bottom: 15px; width: 100%; position: relative; }
+        #my-status { display: inline-block; padding: 6px 15px; border-radius: 20px; color: white; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
+        .btn-leave { position: absolute; left: 10px; top: 10px; background: #95a5a6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+        
+        .board-card { background: white; padding: 15px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        #board { display: flex; flex-direction: column-reverse; }
+        .floor-row { display: flex; align-items: center; padding: 5px 0; border-bottom: 1px solid #f1f1f1; }
+        .floor-label { width: 40px; font-weight: bold; color: #94a3b8; font-size: 0.85rem; }
+        .tiles { display: flex; gap: 8px; }
+        .tile { width: 48px; height: 48px; border: 2px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; font-weight: bold; cursor: pointer; background: white; transition: 0.1s; }
+        .btn-reset { background: none; border: 1px solid #ddd; color: #999; cursor: pointer; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+
+    <h1 class="main-title">Artale 羅密歐與茱麗葉</h1>
+    <div class="author-tag">創作者：小帥</div>
+
+    <div id="room-selector">
+        <h3 style="margin-top:0;">請選擇房間</h3>
+        <div class="room-grid" id="room-buttons"></div>
+    </div>
+
+    <div id="game-screen">
+        <div class="header">
+            <button class="btn-leave" onclick="location.reload()">離開</button>
+            <div id="room-display" style="font-size: 0.75rem; color: #999; margin-bottom: 5px;"></div>
+            <div id="my-status">載入中...</div>
+            <div><button class="btn-reset" onclick="resetAll()">清空此房標記</button></div>
+        </div>
+        <div class="board-card">
+            <div id="board"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myColor = '';
+
+        // 產生房間按鈕 (1-10)
+        const roomBtnsContainer = document.getElementById('room-buttons');
+        for (let r = 1; r <= 10; r++) {
+            const btn = document.createElement('button');
+            btn.className = 'room-btn';
+            btn.innerText = r;
+            btn.onclick = () => selectRoom(r);
+            roomBtnsContainer.appendChild(btn);
+        }
+
+        function selectRoom(roomId) {
+            socket.emit('joinRoom', roomId);
+            document.getElementById('room-selector').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'flex';
+            document.getElementById('room-display').innerText = `目前房號：${roomId}`;
+        }
+
+        // 產生 10 層樓棋盤
+        const board = document.getElementById('board');
+        for (let f = 1; f <= 10; f++) {
+            const row = document.createElement('div');
+            row.className = 'floor-row';
+            row.innerHTML = `<div class="floor-label">F${f}</div>`;
+            const tilesDiv = document.createElement('div');
+            tilesDiv.className = 'tiles';
+            for (let t = 1; t <= 4; t++) {
+                const tile = document.createElement('div');
+                tile.className = 'tile';
+                tile.id = `f${f}-${t}`;
+                tile.innerText = t;
+                tile.onclick = () => {
+                    if(!myColor) return;
+                    socket.emit('click', { floor: f, tile: t, color: myColor });
+                };
+                tilesDiv.appendChild(tile);
+            }
+            row.appendChild(tilesDiv);
+            board.appendChild(row);
+        }
+
+        socket.on('assignColor', (color) => {
+            myColor = color;
+            const status = document.getElementById('my-status');
+            status.style.backgroundColor = color;
+            status.innerText = `我的標記色`;
+        });
+
+        socket.on('sync', (state) => {
+            document.querySelectorAll('.tile').forEach(el => {
+                el.style.backgroundColor = 'white';
+                el.style.borderColor = '#e2e8f0';
+                el.style.color = '#2c3e50';
+            });
+            for (let key in state) {
+                const target = document.getElementById(key);
+                if (target) {
+                    target.style.backgroundColor = state[key];
+                    target.style.borderColor = state[key];
+                    target.style.color = 'white';
+                }
+            }
+        });
+
+        function resetAll() {
+            if (confirm('確定重置此房間？')) socket.emit('reset');
+        }
+    </script>
+</body>
+</html>
